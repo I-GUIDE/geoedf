@@ -8,5 +8,5 @@ setup(name='extractinundationcensustracts',
       author_email='rkalyanapurdue@gmail.com',
       license='MIT',
       packages=find_packages(),
-      install_requires=['xarray','pandas','geopandas','pygeos','shapely','xarray-spatial','requests','qinfer'],
+      install_requires=['requests','xarray','pandas','geopandas','pygeos','shapely','xarray-spatial','requests','qinfer','pysal','esda'],
       zip_safe=False)
