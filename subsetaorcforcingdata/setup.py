@@ -8,6 +8,6 @@ setup(name='subsetforcingdata',
       author_email='rkalyanapurdue@gmail.com',
       license='MIT',
       packages=find_packages(),
-      install_requires=['numpy','pandas','joblib','xarray','netCDF4'],
+      install_requires=['numpy','pandas','joblib','xarray','netCDF4==1.5.6'],
       #data_files=[('data',['data/huc12.shp','data/huc12.dbf','data/huc12.prj','data/huc12.shx'])],
       zip_safe=False)

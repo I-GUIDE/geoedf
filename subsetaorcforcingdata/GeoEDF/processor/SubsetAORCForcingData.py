@@ -24,13 +24,19 @@ class SubsetAORCForcingData(GeoEDFPlugin):
     # shapefile will take precedence
     # if end is provided, period also needs to be provided
     __optional_params = ['huc12_id','shapefile','extents']
-    __required_params = ['start_date','end_date','version','aorc_datapath']
+    __required_params = ['start_date','end_date','version','aorc_datapath','gsl']
 
     # path to HUC2 regions shapefile that is installed as part of this filter package
     __huc12_shapefile = '/compute_shared/AORC_Forcing/HUC12/huc12.shp'
     
     # path to NC file for deriving indices from coordinates
     __ldas_ncfile = '/compute_shared/AORC_Forcing/HUC12/201601010000.LDASOUT_DOMAIN1.comp'
+    
+    # extents for GSL-buffered in matrix coordinates
+    __gsl_bounds = (373, 1227, 1586, 2405)
+    
+    # Anvil-specific AORC_Forcing datapath
+    __anvil_aorc_datapath = '/anvil/datasets/ncar/AORC_Forcing'
     
     # we use just kwargs since we need to be able to process the list of attributes
     # and their values to create the dependency graph in the GeoEDFPlugin super class
@@ -48,11 +54,11 @@ class SubsetAORCForcingData(GeoEDFPlugin):
         # specific check for conditionally required params
         # either inputdir or shapefile need to be provided
         # shapefile takes precedence
-        if 'shapefile'not in kwargs and 'huc12_id' not in kwargs and 'extents' not in kwargs:
-            raise GeoEDFError('Either the HUC12 ID or a shapefile or extents for SubsetAORCForcingData need to be provided.')
+        if 'huc12_id' not in kwargs and 'extents' not in kwargs:
+            raise GeoEDFError('Either the HUC12 ID or extents for SubsetAORCForcingData need to be provided.')
             
-        if 'shapefile' in kwargs or 'extents' in kwargs:
-            raise GeoEDFError('Only HUC12 ID is supported in SubsetAORCForcingData')
+        if 'shapefile' in kwargs:
+            raise GeoEDFError('Shapefile input is not currently supported in SubsetAORCForcingData')
 
         # set all required parameters
         for key in self.__required_params:
@@ -85,10 +91,10 @@ class SubsetAORCForcingData(GeoEDFPlugin):
         
         try:
             # get corner coordinates
-            lo_y = self.huc12_extents[2]
-            up_y = self.huc12_extents[3]
-            lo_x = self.huc12_extents[0]
-            up_x = self.huc12_extents[1]
+            lo_y = self.input_extents[2]
+            up_y = self.input_extents[3]
+            lo_x = self.input_extents[0]
+            up_x = self.input_extents[1]
 
             nc_NWM = xr.open_dataset(self.__ldas_ncfile)
             X_NWM = nc_NWM.coords['x']
@@ -127,6 +133,27 @@ class SubsetAORCForcingData(GeoEDFPlugin):
             return geom.GetEnvelope()
         except:
             raise GeoEDFError('Error getting HUC12 watershed extents in LCC projection in SubsetAORCForcingData')
+
+    # reproject point in WGS84 to LCC
+    def reproject_point_to_lcc(self,point):
+        try:
+            # create projection transformer
+            source = osr.SpatialReference()
+            source.ImportFromEPSG(4326)
+
+            target = osr.SpatialReference()
+            target.ImportFromProj4('+proj=lcc +lat_0=40 +lon_0=-97 +lat_1=30 +lat_2=60 +x_0=0 +y_0=0 +R=6370000 +units=m no_defs')
+        
+            # projection transformer
+            transform = osr.CoordinateTransformation(source, target)
+        
+            # reproject point to LCC
+            point.Transform(transform)
+        
+            return point
+        except:
+            raise GeoEDFError('Error reprojecting point to LCC projection in SubsetAORCForcingData')
+        
         
     # each Processor plugin needs to implement this method
     # if error, raise exception
@@ -137,24 +164,65 @@ class SubsetAORCForcingData(GeoEDFPlugin):
             geom = None
             env = None
             filePaths = []
-            # process HUC12 ID param
-            driver = ogr.GetDriverByName('ESRI Shapefile')
-            inDataset = driver.Open(self.__huc12_shapefile, 0)
-            if inDataset is None:
-                raise GeoEDFError('Error opening HUC12 shapefile in SubsetAORCForcingData')
-            inLayer = inDataset.GetLayer()
-            # filter by HUC12 ID
-            inLayer.SetAttributeFilter("huc12 = '%s'" % self.huc12_id)
-            for feature in inLayer:
-                geom = feature.GetGeometryRef()
-            if geom is None:
-                raise GeoEDFError('Error filtering HUC12 shapefile to retrieve this watershed in SubsetAORCForcingData')
-            # get geom extents
-            self.huc12_extents = self.get_geom_lcc_extents(geom)
-            print('HUC12 extents ',self.huc12_extents)
+            # compute input extents based on HUC12 ID or input shapefile
+            if self.huc12_id is not None:
+                # process HUC12 ID param
+                driver = ogr.GetDriverByName('ESRI Shapefile')
+                inDataset = driver.Open(self.__huc12_shapefile, 0)
+                if inDataset is None:
+                    raise GeoEDFError('Error opening HUC12 shapefile in SubsetAORCForcingData')
+                inLayer = inDataset.GetLayer()
+                # filter by HUC12 ID
+                inLayer.SetAttributeFilter("huc12 = '%s'" % self.huc12_id)
+                for feature in inLayer:
+                    geom = feature.GetGeometryRef()
+                if geom is None:
+                    raise GeoEDFError('Error filtering HUC12 shapefile to retrieve this watershed in SubsetAORCForcingData')
+                # get geom extents
+                self.input_extents = self.get_geom_lcc_extents(geom)
+                print('HUC12 extents ',self.input_extents)
+
+                # transform extents to indices
+                self.nwm_indices = self.get_indices_from_extents()
+                
+            elif self.extents is not None:
+                # short circuit to nwm_indices
+                local_extents = self.extents.split(',')
+                self.nwm_indices = (int(local_extents[0]),int(local_extents[1]),int(local_extents[2]),int(local_extents[3]))
+                
+            elif self.shapefile is not None:
+                driver = ogr.GetDriverByName('ESRI Shapefile')
+                inDataset = driver.Open(self.shapefile, 0)
+                if inDataset is None:
+                    raise GeoEDFError('Error opening input shapefile in SubsetAORCForcingData')
+                inLayer = inDataset.GetLayer()
+                # assuming shapefile input is in WGS84 projection
+                shp_extents = inLayer.GetExtent()
+                print('Shapefile extents in WGS84: ',shp_extents)
+                # create point geometries of lower left and upper right to reproject
+                ll_point = ogr.Geometry(ogr.wkbPoint)
+                ll_point.AddPoint(shp_extents[0],shp_extents[2])
+                print('Lower left point ',ll_point.GetX(),ll_point.GetY())
+                ll_reproj_point = self.reproject_point_to_lcc(ll_point)
+                
+                ur_point = ogr.Geometry(ogr.wkbPoint)
+                ur_point.AddPoint(shp_extents[1],shp_extents[3])
+                print('Upper right point ',ur_point.GetX(),ur_point.GetY())
+                ur_reproj_point = self.reproject_point_to_lcc(ur_point)
+                
+                # reconstruct extents in LCC
+                self.input_extents = (ll_point.GetX(),ur_point.GetX(),ll_point.GetY(),ur_point.GetY())
+                print('Shapefile reprojected in LCC extents ',self.input_extents)
+                
+                # transform extents to indices
+                self.nwm_indices = self.get_indices_from_extents()
             
-            # transform extents to indices
-            self.nwm_indices = self.get_indices_from_extents()
+            # if GSL option is set, we need to get relative extents from the larger GSL bounds
+            if self.gsl == 'True':
+                self.nwm_indices = (self.nwm_indices[0] - self.__gsl_bounds[0] + 1,
+                                    self.nwm_indices[1] - self.__gsl_bounds[0] + 1,
+                                    self.nwm_indices[2] - self.__gsl_bounds[2] + 1,
+                                    self.nwm_indices[3] - self.__gsl_bounds[2] + 1)
             print('Indices ',self.nwm_indices)
             
             # envelope has been retrieved
@@ -168,19 +236,22 @@ class SubsetAORCForcingData(GeoEDFPlugin):
             
             # update AORC data path based on version
             if self.version == '1.1':
-                self.aorc_datapath = '%s/v1.1' % self.aorc_datapath
+                self.aorc_datapath = self.__anvil_aorc_datapath
             
             for date in dates:
                 if self.version == '1.1':
                     fileName = f'{date.year}/{date.year}{str(date.month).zfill(2)}{str(date.day).zfill(2)}{str(date.hour).zfill(2)}00.LDASIN_DOMAIN1'
                 else:
-                    fileName = f'{date.year}/{date.year}{str(date.month).zfill(2)}{str(date.day).zfill(2)}{str(date.hour).zfill(2)}.LDASIN_DOMAIN1'
+                    if self.gsl == 'True':
+                        fileName = f'GSL/{date.year}{str(date.month).zfill(2)}{str(date.day).zfill(2)}{str(date.hour).zfill(2)}.LDASIN_DOMAIN1'
+                    else:
+                        fileName = f'{date.year}/{date.year}{str(date.month).zfill(2)}{str(date.day).zfill(2)}{str(date.hour).zfill(2)}.LDASIN_DOMAIN1'
                 filePath = '%s/%s' % (self.aorc_datapath,fileName)
-                self.subset_forcingdata(filePath)
-                #filePaths.append(filePath)
+                #self.subset_forcingdata(filePath)
+                filePaths.append(filePath)
 
             # subset the files
-            #Parallel(n_jobs=4)(delayed(self.subset_forcingdata)(path) for path in filePaths)
+            Parallel(n_jobs=min(len(filePaths),50))(delayed(self.subset_forcingdata)(path) for path in filePaths)
             
         except:
             raise GeoEDFError('Error occurred when running SubsetAORCForcingData processor')
