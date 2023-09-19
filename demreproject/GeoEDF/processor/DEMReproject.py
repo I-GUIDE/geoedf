@@ -18,7 +18,7 @@ import geopandas
 
 class DEMReproject(GeoEDFPlugin):
     __optional_params = []
-    __required_params = ['site_id', 'shapefile_path', 'raster_path']
+    __required_params = ['site_id', 'resolution', 'raster_path']
 
     # we use just kwargs since we need to be able to process the list of attributes
     # and their values to create the dependency graph in the GeoEDFPlugin super class
@@ -53,6 +53,10 @@ class DEMReproject(GeoEDFPlugin):
         # get the watershed using USGS station number using pynhd module
         try:
             watershed = NLDI().get_basins(self.site_id)
+            shapefile_fileloc_filename=f'{self.target_path}/shape_{self.site_id}.shp'
+            watershed.to_file(filename=shapefile_fileloc_filename,
+                              driver='ESRI Shapefile',
+                              mode='w')
         except:
             raise GeoEDFError("Error occurred when obtaining watershed")
         
@@ -64,16 +68,18 @@ class DEMReproject(GeoEDFPlugin):
 
         # reproject to shapefile
         try:
-            watershed_file=geopandas.read_file(self.shapefile_path)
+            watershed_file=geopandas.read_file(shapefile_fileloc_filename)
             watershed_proj=watershed_file.to_crs(target_crs)
-            watershed_proj.to_file(self.target_path, driver='ESRI Shapefile', mode='w')
+            reproj_shapefile_path = f'{self.target_path}/proj_shp_{self.site_id}.shp'
+            watershed_proj.to_file(reproj_shapefile_path, driver='ESRI Shapefile', mode='w')
         except:
             raise GeoEDFError("Error occurred when reprojecting to shapefile")
 
         # obtain target crs projection
         try:
             # load the DEM file
-            src = rasterio.open(self.raster_path)
+            raster_filepath = f'{self.raster_path}/merged_{self.resolution}_{self.site_id}.tif'
+            src = rasterio.open(raster_filepath)
             # define the target CRS
             target_crs_proj = pyproj.CRS.from_string(target_crs)
         except:
@@ -93,9 +99,10 @@ class DEMReproject(GeoEDFPlugin):
         })
 
         # reproject to target_path
+        reproj_raster_path = f'{self.target_path}/reprojected_{self.resolution}_{self.site_id}.tif'
         try:
             # create the output dataset and perform the reprojection
-            with rasterio.open(self.target_path, 'w', **kwargs) as dst:
+            with rasterio.open(reproj_raster_path, 'w', **kwargs) as dst:
                 for i in range(1, src.count + 1):
                     reproject(
                         source=rasterio.band(src, i),

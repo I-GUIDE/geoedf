@@ -11,13 +11,15 @@ import geopandas
 from rasterio.mask import mask
 from shapely.geometry import mapping
 
-""" Module for implementing the DEMClip processor. This processor accepts a path for
-    a shaplefile and a path for the raster.
+""" Module for implementing the DEMClip processor. This processor accepts a USGS site_id
+    and a path for the raster. The processor assumes that the shapefile is located in the same 
+    folder as the raster path. The names of the shapefile and raster are constructed based on 
+    the site_id input.
 """
 
 class DEMReproject(GeoEDFPlugin):
     __optional_params = []
-    __required_params = ['shapefile_path', 'raster_path']
+    __required_params = ['site_id', 'resolution', 'raster_path']
 
     # we use just kwargs since we need to be able to process the list of attributes
     # and their values to create the dependency graph in the GeoEDFPlugin super class
@@ -51,13 +53,15 @@ class DEMReproject(GeoEDFPlugin):
 
         # open the shapefile with geopandas
         try:
-            shapefile_gdf = geopandas.read_file(self.shapefile)
+            shapefile_path = f'{self.raster_path}/proj_shp_{self.site_id}.shp'
+            shapefile_gdf = geopandas.read_file(shapefile_path)
         except:
             raise GeoEDFError("Error occurred when opening the shapefile")
         
         # open raster file
         try:
-            src = rasterio.open(self.raster_path)
+            raster_filepath = f'{self.raster_path}/reprojected_{self.resolution}_{self.site_id}.tif'
+            src = rasterio.open(raster_filepath)
         except:
             raise GeoEDFError("Error occurred when opening raster file")
 
@@ -90,7 +94,8 @@ class DEMReproject(GeoEDFPlugin):
 
         # write clipped raster
         try:
-            with rasterio.open(self.target_path, 'w', **out_meta) as dst:
+            clip_raster_filepath = f'{self.target_path}/clipped_raster_{self.site_id}.tif'
+            with rasterio.open(clip_raster_filepath, 'w', **out_meta) as dst:
                 dst.write(clipped)
             dst.close()
         except:
