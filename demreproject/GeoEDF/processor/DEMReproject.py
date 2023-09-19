@@ -42,9 +42,6 @@ class DEMReproject(GeoEDFPlugin):
             # if key not provided in optional arguments, defaults value to None
             setattr(self,key,kwargs.get(key,None))
 
-        # Correct paths
-        self.shapefile_path = self.shapefile_path + ".shp"
-
         # class super class init
         super().__init__()
 
