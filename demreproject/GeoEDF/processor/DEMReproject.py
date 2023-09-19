@@ -5,7 +5,6 @@ from geoedfframework.utils.GeoEDFError import GeoEDFError
 from geoedfframework.GeoEDFPlugin import GeoEDFPlugin
 
 import os
-import shutil
 
 import rasterio
 from pynhd import NLDI
