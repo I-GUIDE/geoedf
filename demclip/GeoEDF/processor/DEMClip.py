@@ -17,7 +17,7 @@ from shapely.geometry import mapping
     the site_id input.
 """
 
-class DEMReproject(GeoEDFPlugin):
+class DEMClip(GeoEDFPlugin):
     __optional_params = []
     __required_params = ['site_id', 'resolution', 'raster_path']
 

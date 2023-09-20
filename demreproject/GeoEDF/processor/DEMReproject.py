@@ -81,7 +81,7 @@ class DEMReproject(GeoEDFPlugin):
             raster_filepath = f'{self.raster_path}/merged_{self.resolution}_{self.site_id}.tif'
             src = rasterio.open(raster_filepath)
             # define the target CRS
-            target_crs_proj = pyproj.CRS.from_string(target_crs)
+            target_crs_proj = target_crs
         except:
             raise GeoEDFError("Error occurred when obtaining crs projection")
 
